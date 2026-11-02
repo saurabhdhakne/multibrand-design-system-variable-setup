@@ -1,0 +1,9 @@
+{
+  "source": "tokens/figma",
+  "exclude": ["core", "light", "dark", "theme"],
+  "collections": {
+    "Alias": { "attribute": "brand", "label": "Brand" },
+    "Mapped": { "attribute": "theme", "label": "Theme" },
+    "Responsive": { "attribute": "viewport", "label": "Viewport", "media": { "Mobile": "(max-width: 767px)" } }
+  }
+}

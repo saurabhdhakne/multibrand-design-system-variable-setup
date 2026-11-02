@@ -1,0 +1,198 @@
+// Turns the Tokens Studio / Figma variables export in tokens/figma into:
+//   src/tokens/generated/tokens.css  — CSS custom properties, one block per collection mode
+//   src/tokens/generated/tokens.ts   — typed token names, collections and modes
+//
+// Mapping rules (see tokens.config.json)
+//   - Token set "Collection/Mode" (e.g. "Alias/Ocean") is one mode of a Figma collection
+//   - Token "Spacing.inset.space-inset-sm"   -> --spacing-inset-space-inset-sm
+//   - Single-mode collection                 -> :root, [data-ds-scope]
+//   - Multi-mode collection                  -> [data-<attribute>="<mode>"]; the first mode is also on :root
+//   - Collection with "media" config         -> switches by @media query instead of a picker
+//   - Reference "{Primary.500}"              -> var(--primary-500), so a brand switch cascades through themes
+import fs from 'node:fs';
+import path from 'node:path';
+
+const config = JSON.parse(fs.readFileSync('tokens.config.json', 'utf8'));
+const SRC = path.resolve(config.source);
+const OUT_DIR = path.resolve('src/tokens/generated');
+
+const slug = (s) =>
+  String(s)
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase();
+
+const cssName = (tokenPath) => `--${tokenPath.split('.').map(slug).join('-')}`;
+
+// ---------------------------------------------------------------------------
+// Load token sets in $metadata order and group them into collections/modes.
+
+const { tokenSetOrder } = JSON.parse(fs.readFileSync(path.join(SRC, '$metadata.json'), 'utf8'));
+const sets = tokenSetOrder.filter((s) => !config.exclude.includes(s));
+
+const collections = []; // [{ name, modes: [modeName], tokens: Map<path, { type, scopes, values: { mode: raw } }> }]
+for (const set of sets) {
+  const [collectionName, modeName = 'Default'] = set.split('/');
+  let c = collections.find((x) => x.name === collectionName);
+  if (!c) collections.push((c = { name: collectionName, modes: [], tokens: new Map() }));
+  c.modes.push(modeName);
+
+  const walk = (node, prefix) => {
+    if (node && typeof node === 'object' && '$value' in node) {
+      const t = c.tokens.get(prefix) ?? {
+        type: node.$type,
+        scopes: node.$extensions?.['com.figma.scopes'] ?? [],
+        values: {},
+      };
+      t.values[modeName] = node.$value;
+      c.tokens.set(prefix, t);
+      return;
+    }
+    for (const [k, v] of Object.entries(node)) if (!k.startsWith('$')) walk(v, prefix ? `${prefix}.${k}` : k);
+  };
+  walk(JSON.parse(fs.readFileSync(path.join(SRC, `${set}.json`), 'utf8')), '');
+}
+
+// ---------------------------------------------------------------------------
+// Resolve references. Like Tokens Studio, a reference goes to the latest collection that defines
+// the path, skipping the referencing token itself (so Alias "Foundation.black" = "{Foundation.black}"
+// points at Brand's Foundation.black).
+
+const REF = /^\{([^{}]+)\}$/;
+
+function resolveRef(ref, fromCollection) {
+  const owners = collections.filter((c) => c.tokens.has(ref) && !(c === fromCollection));
+  return owners.length ? cssName(ref) : null;
+}
+
+// A token whose every mode just references the same path in an earlier collection adds nothing:
+// it would compile to `--x: var(--x)`. Skip it rather than emit a cycle.
+const isPassthrough = (tokenPath, t) =>
+  Object.values(t.values).every((v) => typeof v === 'string' && REF.exec(v)?.[1] === tokenPath);
+
+// Fail loudly on real name collisions between collections — they'd silently override each other in CSS.
+const seen = new Map();
+for (const c of collections) {
+  for (const [p, t] of c.tokens) {
+    if (isPassthrough(p, t)) continue;
+    const n = cssName(p);
+    if (seen.has(n)) {
+      throw new Error(`CSS variable ${n} is produced by both "${seen.get(n)}" and "${c.name}/${p}". Rename one in Figma.`);
+    }
+    seen.set(n, `${c.name}/${p}`);
+  }
+}
+
+function valueToCss(tokenPath, t, value, collection) {
+  if (typeof value === 'string' && value.includes('{')) {
+    const ref = REF.exec(value)?.[1];
+    const target = ref && resolveRef(ref, collection);
+    if (!target) {
+      console.warn(`⚠ ${collection.name}/${tokenPath}: unsupported or unknown reference "${value}" — skipped`);
+      return null;
+    }
+    return `var(${target})`;
+  }
+  switch (t.type) {
+    case 'color':
+      return String(value);
+    case 'number': {
+      const n = Number(value);
+      if (t.scopes.includes('FONT_WEIGHT') || /weight/i.test(tokenPath)) return String(n);
+      if (t.scopes.includes('OPACITY') || /opacity/i.test(tokenPath)) return String(n / 100);
+      return n === 0 ? '0' : `${n}px`;
+    }
+    case 'text':
+      return /font|family/i.test(tokenPath) ? `"${value}"` : String(value);
+    default:
+      console.warn(`⚠ ${collection.name}/${tokenPath}: type "${t.type}" not handled — skipped`);
+      return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Emit CSS + TS.
+
+let css = '/* Generated by scripts/build-tokens.mjs from tokens/figma — do not edit. */\n';
+const modeCollections = {};
+const responsiveCollections = {};
+const tokenEntries = [];
+
+const block = (selector, lines, indent = '') =>
+  `${indent}${selector.replaceAll('\n', `\n${indent}`)} {\n${lines.map((l) => indent + l).join('\n')}\n${indent}}\n`;
+
+for (const c of collections) {
+  const opts = config.collections[c.name] ?? {};
+  const attr = `data-${opts.attribute ?? slug(c.name)}`;
+  const key = opts.attribute ?? slug(c.name);
+  const multi = c.modes.length > 1;
+  const media = opts.media ?? null;
+
+  const linesFor = (mode) => {
+    const lines = [];
+    for (const [p, t] of [...c.tokens].sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))) {
+      if (isPassthrough(p, t)) continue;
+      const value = valueToCss(p, t, t.values[mode], c);
+      if (value != null) lines.push(`  ${cssName(p)}: ${value};`);
+    }
+    return lines;
+  };
+
+  if (!multi) {
+    css += `\n/* ${c.name} */\n` + block(':root,\n[data-ds-scope]', linesFor(c.modes[0]));
+  } else if (media) {
+    // Default mode everywhere, other modes kick in by media query; [data-*] forces a mode (e.g. for previews).
+    const [defaultMode, ...rest] = c.modes;
+    css += `\n/* ${c.name} / ${defaultMode} (default) */\n` + block(':root,\n[data-ds-scope]', linesFor(defaultMode));
+    for (const mode of rest) {
+      if (!media[mode]) continue;
+      css += `\n/* ${c.name} / ${mode} */\n@media ${media[mode]} {\n${block(':root,\n[data-ds-scope]', linesFor(mode), '  ')}}\n`;
+    }
+    for (const mode of c.modes) {
+      css += `\n/* ${c.name} / ${mode} (forced) */\n` + block(`[${attr}="${slug(mode)}"]`, linesFor(mode));
+    }
+    responsiveCollections[key] = { name: c.name, attribute: attr, modes: Object.fromEntries(c.modes.map((m) => [slug(m), m])), media };
+  } else {
+    c.modes.forEach((mode, i) => {
+      css += `\n/* ${c.name} / ${mode} */\n` + block(`${i === 0 ? ':root,\n' : ''}[${attr}="${slug(mode)}"]`, linesFor(mode));
+    });
+    modeCollections[key] = {
+      name: opts.label ?? c.name,
+      attribute: attr,
+      defaultMode: slug(c.modes[0]),
+      modes: Object.fromEntries(c.modes.map((m) => [slug(m), m])),
+    };
+  }
+
+  for (const [p, t] of c.tokens) {
+    if (isPassthrough(p, t)) continue;
+    tokenEntries.push([p, { var: `var(${cssName(p)})`, cssName: cssName(p), type: t.type, collection: c.name }]);
+  }
+}
+
+const ts = `// Generated by scripts/build-tokens.mjs from tokens/figma — do not edit.
+
+/** Collections the user can switch (brand, theme, …). */
+export const modeCollections = ${JSON.stringify(modeCollections, null, 2)} as const;
+
+/** Collections that switch automatically by media query. Set the attribute to force a mode. */
+export const responsiveCollections = ${JSON.stringify(responsiveCollections, null, 2)} as const;
+
+export type ModeCollectionKey = keyof typeof modeCollections;
+export type ModeOf<K extends ModeCollectionKey> = keyof (typeof modeCollections)[K]['modes'];
+export type ModeSelection = { [K in ModeCollectionKey]?: ModeOf<K> };
+
+export const tokens = ${JSON.stringify(Object.fromEntries(tokenEntries), null, 2)} as const;
+
+export type TokenName = keyof typeof tokens;
+`;
+
+fs.mkdirSync(OUT_DIR, { recursive: true });
+fs.writeFileSync(path.join(OUT_DIR, 'tokens.css'), css);
+fs.writeFileSync(path.join(OUT_DIR, 'tokens.ts'), ts);
+console.log(
+  `✓ tokens: ${tokenEntries.length} tokens from ${collections.map((c) => `${c.name}(${c.modes.join('|')})`).join(', ')}` +
+    (config.exclude.length ? ` — excluded sets: ${config.exclude.join(', ')}` : ''),
+);

@@ -1,0 +1,15 @@
+{
+  "tokenSetOrder": [
+    "core",
+    "light",
+    "dark",
+    "theme",
+    "Brand/Mode 1",
+    "Alias/Ocean",
+    "Alias/Natural",
+    "Mapped/Light",
+    "Mapped/Dark",
+    "Responsive/Desktop",
+    "Responsive/Mobile"
+  ]
+}

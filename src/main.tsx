@@ -1,13 +1,16 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ThemeProvider } from './theme/ThemeProvider';
+import { TooltipProvider } from '@/components/atoms';
+import { ThemeProvider } from '@/theme/ThemeProvider';
 import { App } from './App';
 import './index.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>
-      <App />
+      <TooltipProvider>
+        <App />
+      </TooltipProvider>
     </ThemeProvider>
   </StrictMode>,
 );

@@ -1,0 +1,28 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Introduction" />
+
+# Multibrand Design System
+
+These components are shadcn/ui, themed entirely by the **Figma variables** in `tokens/figma`.
+
+| Figma collection | Role | Switch it with |
+| --- | --- | --- |
+| Brand | Primitive palette, scale, fonts | (fixed) |
+| Alias | Brand: **Ocean / Natural** | Toolbar **Brand** menu |
+| Mapped | Theme: **Light / Dark** | Toolbar **Theme** menu |
+| Responsive | Type scale and section spacing: **Desktop / Mobile** | Toolbar **Viewport** |
+
+## Structure
+
+- **Foundations** show the tokens themselves: colors, typography, spacing and radius.
+- **Atoms** are the shadcn primitives (`src/components/ui`), re-exported from `@/components/atoms`.
+- **Molecules** combine a few atoms: FormField, SearchBar, UserChip, StatusAlert, ThemeSwitcher.
+- **Organisms** are full UI sections: LoginForm, AppHeader, SettingsDialog.
+
+## Using tokens
+
+- shadcn classes (`bg-primary`, `text-muted-foreground`, `border-input`…) are mapped to Figma tokens in `src/index.css`.
+- Every Figma token also has a Tailwind utility: `bg-surface-primary-default`, `text-text-error-default`,
+  `p-inset-md`, `gap-gap-sm`, `text-h1`, `text-caption`.
+- Avoid raw palette classes (Blue, Slate…) in components. Use the Mapped tokens so brand and theme switching keeps working.

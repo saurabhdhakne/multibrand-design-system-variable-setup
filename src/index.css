@@ -1,17 +1,74 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
 @import './tokens/generated/tokens.css';
+@import './tokens/generated/tokens.tailwind.css';
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+/* shadcn's `dark:` variant follows the Figma "Mapped" collection instead of a .dark class. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/*
+ * shadcn semantic variables -> Figma tokens.
+ * Declared on every element that switches a mode so they re-resolve inside nested scopes.
+ */
+:root,
+[data-ds-scope],
+[data-brand],
+[data-theme] {
+  --background: var(--surface-page);
+  --foreground: var(--text-default-body);
+  --card: var(--surface-default);
+  --card-foreground: var(--text-default-body);
+  --popover: var(--surface-default);
+  --popover-foreground: var(--text-default-body);
+  --primary: var(--surface-primary-default);
+  --primary-foreground: var(--text-primary-on-color);
+  --secondary: var(--surface-page-secondary);
+  --secondary-foreground: var(--text-default-heading);
+  --muted: var(--surface-secondary);
+  --muted-foreground: var(--text-default-placeholder);
+  --accent: var(--surface-secondary);
+  --accent-foreground: var(--text-default-heading);
+  --destructive: var(--surface-error-default);
+  --border: var(--border-secondary);
+  --input: var(--border-secondary);
+  --ring: var(--border-primary-focus);
 }
 
-body,
-[data-ds-scope] {
-  margin: 0;
-  font-family: var(--font-primary), system-ui, sans-serif;
-  font-size: var(--font-copy-body-text-size);
-  line-height: var(--font-copy-body-line-height);
-  background: var(--surface-page);
-  color: var(--text-default-body);
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-xs: var(--border-radius-50);
+  --radius-sm: var(--border-radius-100);
+  --radius-md: var(--border-radius-200);
+  --radius-lg: var(--border-radius-300);
+  --radius-xl: var(--border-radius-300);
+
+  --font-sans: var(--font-primary), ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body,
+  [data-ds-scope] {
+    @apply bg-background font-sans text-body text-foreground;
+  }
 }
